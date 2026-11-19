@@ -46,3 +46,19 @@ Chaque entrée : décision, raison, date. Les plus récentes en bas.
 15. **Mode A autorisé** (confirmé par l'utilisateur le 2026-11-19) : l'enseignant `claude -p` (abonnement Claude Code) peut générer des données pour entraîner ce petit modèle de cours.
 
 16. **`sem_sim` (e5) mal calibrée** : sur le smoke test, elle vaut environ 0,91 pour des sorties à peine intelligibles (les cosinus d'e5 sont tassés dans [0,7 ; 1]). À faire avant l'étape 1 : la recentrer par rapport à une référence de paires non liées (`(sim − sim_aléatoire) / (1 − sim_aléatoire)`), et ajouter un taux de mots hors lexique pour attraper les mots tronqués (« vall », « lumi »), invisibles pour `degenerate_rate`.
+
+17. **Enseignant du mode A : Sonnet en `--effort low` via `claude -p`, protocole à objet JSON numéroté, lots de 10.**
+    - Premier essai (tableau JSON, lots de 20) : 19 réponses sur 20, donc tout le lot perdu ; 42 k tokens de réflexion pour un seul appel de 6,5 min.
+    - La réflexion ne peut pas être désactivée (ni `alwaysThinkingEnabled`, ni `MAX_THINKING_TOKENS`). `--effort low` donne une qualité équivalente à `medium`. Haiku fait pire : deux fois plus de réflexion, plus d'erreurs.
+    - Les réponses manquantes sont redemandées au tour de réparation.
+    - Aucune clé API : les variables `ANTHROPIC_API_KEY` et apparentées sont retirées de l'environnement du sous-processus, et `--setting-sources ""` est passé. Le `total_cost_usd` est une estimation au tarif public, non facturée.
+
+18. **Contrôle lexique (pyspellchecker FR + `configs/lexicon_extra.txt`) dans la boucle de réparation et comme filtre.**
+    - Sur les 50 premières paires sans ce contrôle, 21 sur 46 contenaient des mots inventés (« musicos », « hannutons », « chadival ») et 34 sur 46 commençaient par une minuscule. Entraîner dessus aurait appris à l'élève la pathologie même qu'on veut corriger.
+    - Avec le contrôle : 0 mot inventé, 0 minuscule en tête, 43 paires gardées sur 50 (86 %), environ 0,3 appel par source.
+    - Les mots à apostrophe ou trait d'union sont testés en entier, puis par parties. Les clitiques sont acceptés (« dit-on », « va-t-il »).
+    - La liste complémentaire ne contient que des mots réels vérifiés (« frangin », « toubib »…).
+    - Nouvelle métrique d'évaluation : `oov_rate`.
+
+19. **Le seuil `min_sem_sim` = 0,85 reste provisoire.** Sur 50 paires, `sem_sim` va de 0,88 à 0,95 ; elle ne sépare ni les contresens ni les mots inventés. Elle sera recalibrée (recentrage par rapport à des paires non liées) avant l'étape 1.
+
