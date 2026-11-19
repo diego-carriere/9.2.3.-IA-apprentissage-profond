@@ -21,9 +21,11 @@ class ForbiddenTokensProcessor(LogitsProcessor):
         return scores.masked_fill(self.mask.to(scores.device), float("-inf"))
 
 
-def build_messages(source: str, prompts_dir: Path = PROMPTS_DIR) -> list[dict]:
+def build_messages(source: str, fewshot: bool = True, prompts_dir: Path = PROMPTS_DIR) -> list[dict]:
+    """Chat prompt shared by inference AND training (train_sft builds its examples from it)."""
     msgs = [{"role": "system", "content": (prompts_dir / "system.txt").read_text(encoding="utf-8").strip()}]
-    for line in (prompts_dir / "fewshot.jsonl").read_text(encoding="utf-8").splitlines():
+    shots = (prompts_dir / "fewshot.jsonl").read_text(encoding="utf-8").splitlines() if fewshot else []
+    for line in shots:
         ex = json.loads(line)
         msgs += [{"role": "user", "content": ex["source"]}, {"role": "assistant", "content": ex["target"]}]
     return msgs + [{"role": "user", "content": source}]
@@ -46,13 +48,13 @@ def load(model_name: str, dtype: str = "auto", load_in_4bit: bool = False):
 @torch.inference_mode()
 def generate(model, tok, source: str, mask: torch.Tensor | None, n: int = 1, temperature: float = 0.7,
              top_p: float = 0.9, max_new_tokens: int = 256, repetition_penalty: float = 1.0,
-             no_repeat_ngram_size: int = 0, seed: int = 0) -> list[dict]:
+             no_repeat_ngram_size: int = 0, seed: int = 0, fewshot: bool = True) -> list[dict]:
     """n sampled rewrites of `source`. mask=None disables the constraint (for ablations).
 
     repetition_penalty / no_repeat_ngram_size default off: HF applies them to the prompt too,
     which would forbid copying e-free n-grams from the source.
     """
-    enc = tok.apply_chat_template(build_messages(source), add_generation_prompt=True, enable_thinking=False,
+    enc = tok.apply_chat_template(build_messages(source, fewshot), add_generation_prompt=True, enable_thinking=False,
                                   return_tensors="pt", return_dict=True).to(model.device)
     # shortcut: length cap = 2x source + 32 tokens bounds the cost of degenerate loops; raise if rewrites get cut
     budget = min(max_new_tokens, 2 * len(tok(source).input_ids) + 32)

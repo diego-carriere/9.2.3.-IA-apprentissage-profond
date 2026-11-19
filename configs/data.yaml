@@ -1,0 +1,30 @@
+# Mode A training data. Books here must NOT appear in data/eval (checked by build_data.py corpus).
+corpus:
+  seed: 20261119
+  min_words: 8
+  max_words: 120
+  para_share: 0.3            # share of multi-sentence paragraphs among Gutenberg sources
+  wikipedia_n: 3000          # modern register, CC BY-SA 4.0
+  gutenberg_books:           # public domain, authors dead before 1915; n = sources drawn per book
+    - {id: 17489, file: 17489-8.txt, author: Victor Hugo, title: "Les Misérables, tome I", genre: narratif, n: 700}
+    - {id: 5423, file: 5423-0.txt, author: Victor Hugo, title: "L'Homme qui rit", genre: narratif, n: 700}
+    - {id: 20262, file: 20262-0.txt, author: Madame de La Fayette, title: "La Princesse de Clèves", genre: narratif, n: 700}
+    - {id: 16901, file: 16901-8.txt, author: Amédée Achard, title: "Madame Rose ; Pierre de Villerglé", genre: dialogue, n: 700}
+    - {id: 17808, file: 17808-8.txt, author: Amédée Achard, title: "Belle-Rose", genre: dialogue, n: 700}
+    - {id: 4968, file: 4968-0.txt, author: Jules Verne, title: "Les Cinq Cents Millions de la Bégum", genre: descriptif, n: 700}
+    - {id: 4548, file: 4548-0.txt, author: Jules Verne, title: "Cinq Semaines en ballon", genre: descriptif, n: 700}
+    - {id: 9945, file: 9945-8.txt, author: Adolphe Thiers, title: "Histoire de la Révolution française, vol. I", genre: argumentatif, n: 700}
+    - {id: 4647, file: 4647-0.txt, author: Voltaire, title: "Œuvres (contes)", genre: argumentatif, n: 700}
+    - {id: 14286, file: 14286-0.txt, author: Homère / Leconte de Lisle, title: "L'Odyssée (trad.)", genre: narratif, n: 700}
+
+teacher:
+  model: sonnet              # Claude Code CLI on the claude.ai subscription login, never an API key
+  batch_size: 20             # sources per call: spares the subscription quota
+  max_calls: 30              # hard cap of NEW calls per run (cached answers are free)
+  max_repairs: 2
+  cache_dir: data/cache/teacher
+
+filter:
+  min_sem_sim: 0.85          # raw e5 cosine; to calibrate on the first hand-reviewed batch
+  len_ratio_min: 0.7
+  len_ratio_max: 1.3

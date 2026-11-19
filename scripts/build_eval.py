@@ -11,14 +11,12 @@ import json
 import random
 import re
 import sys
-import urllib.request
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from lipogram.gutenberg import WORD, SENT_SPLIT, clean_sentence, fetch, ok_text, paragraphs  # noqa: E402
 from lipogram.rules import count_forbidden  # noqa: E402
 
-MIRROR = "http://mirrors.xmission.com/gutenberg"
-RAW = Path("data/raw/gutenberg")
 OUT = Path("data/eval")
 SEED = 20261119
 N_SENT_PER_GENRE, N_PARA_PER_GENRE, N_TRAPS, MAX_TRAPS_PER_BOOK = 40, 10, 30, 3
@@ -48,37 +46,6 @@ BOOKS = [
 
 NUMBER_WORDS = set("deux trois quatre cinq six sept huit neuf dix onze douze treize quatorze quinze seize vingt "
                    "trente quarante cinquante soixante cent cents mille million millions".split())
-SENT_SPLIT = re.compile(r"(?<=[.!?…])(?:\s*»)?\s+(?=[«—–-]?\s*[A-ZÀÂÇÉÈÊÎÔÛ])")
-WORD = re.compile(r"[\wÀ-ÿ'’-]+")
-
-
-def mirror_path(book_id: int) -> str:
-    s = str(book_id)
-    return "/".join(s[:-1]) + f"/{s}/"
-
-
-def fetch(book_id: int, fname: str) -> str:
-    RAW.mkdir(parents=True, exist_ok=True)
-    path = RAW / f"{book_id}.txt"
-    if not path.exists():
-        req = urllib.request.Request(MIRROR + "/" + mirror_path(book_id) + fname,
-                                     headers={"User-Agent": "lipogram-course-project/0.1"})
-        raw = urllib.request.urlopen(req, timeout=60).read()
-        path.write_text(raw.decode("latin-1" if fname.endswith("-8.txt") else "utf-8"), encoding="utf-8")
-    return path.read_text(encoding="utf-8")
-
-
-def paragraphs(text: str) -> list[str]:
-    """Body paragraphs: Gutenberg boilerplate, front/back matter, headings and notes removed."""
-    text = text.replace("\r", "")
-    start = re.search(r"\*\*\* ?START OF.*\n", text)
-    end = re.search(r"\*\*\* ?END OF", text)
-    body = text[start.end() if start else 0:end.start() if end else len(text)]
-    paras = [re.sub(r"\s+", " ", p.replace("_", "").replace("--", "—")).strip() for p in re.split(r"\n\s*\n", body)]
-    paras = [p for p in paras if p and not p.isupper() and not re.search(r"\[\d+\]|\[Illustration|http|\*\*\*", p)]
-    return paras[len(paras) // 20: len(paras) - len(paras) // 50]  # skip preface / end matter
-
-
 def spoken(p: str) -> bool:
     return p.startswith(("«", "—"))
 
@@ -95,17 +62,6 @@ def dialogue_chunks(paras: list[str], lo: int = 60, hi: int = 180) -> list[str]:
             chunks.append("\n".join(run))
         run = [p] if spoken(p) else []
     return chunks
-
-
-def clean_sentence(s: str) -> str:
-    return s.strip().lstrip("—–- ").strip()
-
-
-def ok_text(t: str, lo: int, hi: int) -> bool:
-    n = len(WORD.findall(t))
-    return (lo <= n <= hi and (t[0].isupper() or t[0] in "«—") and t[-1] in ".!?…»" and count_forbidden(t) > 0
-            and not re.search(r"[0-9]{3,}|[\[\]{}<>|#*=]|[^\W\d_]\d|\d[^\W\d_'’]|\d['’]", t)
-            and t.count("«") == t.count("»"))
 
 
 def trap_score(s: str) -> tuple[int, int]:

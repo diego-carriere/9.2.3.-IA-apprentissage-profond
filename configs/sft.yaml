@@ -1,0 +1,15 @@
+# Step 2 SFT QLoRA (GPU 8 GB). Starting values: adjust from the validation curve / VRAM.
+model: unsloth/Qwen3-4B-Instruct-2507-bnb-4bit
+data_dir: data/processed/sft
+output_dir: models/sft_qwen3_4b
+fewshot: false               # same at inference: set generation.fewshot: false in the eval config
+max_seq_length: 1024         # OOM fallback order: 768 -> 512 -> lora_r 8 -> smaller model
+lora_r: 16
+lora_alpha: 16
+grad_accum: 16
+lr: 2.0e-4
+warmup_ratio: 0.03
+epochs: 2
+eval_steps: 50
+masked_loss: false           # ablation: true = loss renormalized over allowed tokens
+seed: 0
