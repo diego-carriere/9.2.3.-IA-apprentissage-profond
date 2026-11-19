@@ -19,7 +19,7 @@ from collections import Counter
 from pathlib import Path
 
 from lipogram.gutenberg import SENT_SPLIT, WORD, clean_sentence, fetch, ok_text, paragraphs
-from lipogram.metrics import degenerate_reason, len_ratio
+from lipogram.metrics import degenerate_reason, len_ratio, unknown_words
 from lipogram.rules import forbidden_positions, is_lipogram
 
 PROMPTS_DIR = Path(__file__).resolve().parents[2] / "prompts"
@@ -197,30 +197,46 @@ def offending_words(text: str) -> list[str]:
     return [f"{m.group(0)}@{m.start()}" for m in WORD.finditer(text) if bad & set(range(m.start(), m.end()))]
 
 
+def needs_repair(source: str, target: str | None) -> bool:
+    return not target or not is_lipogram(target) or bool(unknown_words(target, source))
+
+
+def capitalize_like(source: str, target: str) -> str:
+    """Restore the leading capital the teacher sometimes drops (never adds an « e »)."""
+    i = next((k for k, c in enumerate(target) if c.isalpha()), None)
+    if i is None or not source.lstrip("«—–- ")[:1].isupper():
+        return target
+    return target[:i] + target[i].upper() + target[i + 1:]
+
+
 def repair_prompt(items: dict[str, tuple[str, str | None]]) -> str:
-    payload = {k: {"source": s, "ta_version": t, "mots_fautifs": offending_words(t) if t else []}
+    payload = {k: {"source": s, "ta_version": t, "mots_avec_e": offending_words(t) if t else [],
+                   "mots_inexistants": unknown_words(t, s) if t else []}
                for k, (s, t) in items.items()}
-    return ("Corrige ces réécritures. Si ta_version contient encore des « e », remplace les mots listés (mot@position) "
-            "et seulement ce qui est nécessaire ; si ta_version est null, réécris la source. Le résultat doit être "
-            "sans aucun « e » et fidèle à la source. Réponds par un objet JSON avec les mêmes clés.\n"
+    return ("Corrige ces réécritures. Remplace les mots listés dans mots_avec_e (mot@position, ils contiennent un « e ») "
+            "et dans mots_inexistants (ils n'existent pas en français : utilise un vrai mot courant, quitte à "
+            "reformuler) ; ne change que le nécessaire. Si ta_version est null, réécris la source. Le résultat doit être "
+            "sans aucun « e », en vrais mots français, avec les majuscules de la source (noms propres, débuts de "
+            "phrase), fidèle à la source. Réponds par un objet JSON avec les mêmes clés.\n"
             + json.dumps(payload, ensure_ascii=False))
 
 
 def rewrite_batch(teacher: Teacher, sources: list[str], max_repairs: int = 2) -> list[dict]:
-    """Teacher rewrites + up to max_repairs repair rounds for outputs that are missing or still contain an « e »."""
+    """Teacher rewrites + up to max_repairs repair rounds for outputs that are missing, contain an « e »,
+    or use words absent from the French lexicon."""
     system = teacher_system()
     keys = [str(i + 1) for i in range(len(sources))]
     got = parse_json_object(teacher.ask(system, json.dumps(dict(zip(keys, sources)), ensure_ascii=False)), keys)
-    targets = [got.get(k) for k in keys]
+    targets = [capitalize_like(s, got[k]) if k in got else None for s, k in zip(sources, keys)]
     repairs = [0] * len(sources)
     for _ in range(max_repairs):
-        todo = {k: (sources[i], targets[i]) for i, k in enumerate(keys) if targets[i] is None or not is_lipogram(targets[i])}
+        todo = {k: (sources[i], targets[i]) for i, k in enumerate(keys) if needs_repair(sources[i], targets[i])}
         if not todo:
             break
         fixed = parse_json_object(teacher.ask(system, repair_prompt(todo)), list(todo))
         for k, t in fixed.items():
             i = int(k) - 1
-            targets[i], repairs[i] = t, repairs[i] + 1
+            targets[i], repairs[i] = capitalize_like(sources[i], t), repairs[i] + 1
     return [{"source": s, "target": t or "", "repairs": r} for s, t, r in zip(sources, targets, repairs)]
 
 
@@ -231,6 +247,8 @@ def rejection_reason(source: str, target: str, sim: float, cfg: dict) -> str | N
         return "missing"
     if not is_lipogram(target):
         return "has_e"
+    if len(unknown_words(target, source)) > cfg.get("max_unknown_words", 0):
+        return "unknown_words"
     if sim < cfg["min_sem_sim"]:
         return "low_sem_sim"
     if not cfg["len_ratio_min"] <= len_ratio(source, target) <= cfg["len_ratio_max"]:

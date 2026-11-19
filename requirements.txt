@@ -60,6 +60,7 @@ pydantic==2.14.4
 pydantic_core==2.50.5
 Pygments==2.21.0
 pyparsing==3.3.3
+pyspellchecker==0.9.1
 pytest==9.2.0
 python-dateutil==4.0.0
 PyYAML==6.0.3

@@ -3,7 +3,8 @@ import math
 import pytest
 import torch
 
-from lipogram.metrics import degenerate_reason, export_human_csv, fluency, len_ratio, score_rows, summary
+from lipogram.metrics import (degenerate_reason, export_human_csv, fluency, len_ratio, oov_rate, score_rows,
+                              summary, unknown_words)
 from lipogram.rerank import best_of_n, composite, length_score
 
 SRC = "Le chat dort sur le canapé depuis ce matin."
@@ -81,3 +82,19 @@ def test_best_of_n_non_strict_prefers_lipograms():
     lipo, other = _cand("un chat", 0.5), _cand("le chat", 0.99)
     assert best_of_n([other, lipo], strict=False) is lipo
     assert best_of_n([other], strict=False) is other
+
+
+def test_unknown_words():
+    assert unknown_words("Un garçon fixait la vall, à l'approbation du port.") == ["vall"]
+    assert unknown_words("Mon chat dort sur un divan, tout au long du matin.") == []
+    assert unknown_words("Chavas fut un bourg du Portugal.") == []  # capitalized = proper noun, not checked
+    assert unknown_words("un knout claqua", source="Il fit claquer son knout.") == []  # copied from source
+    assert oov_rate("un vall", "") == 0.5
+
+
+def test_fewshot_targets_pass_lexicon():
+    import json
+    from lipogram.generate import PROMPTS_DIR
+    for line in (PROMPTS_DIR / "fewshot.jsonl").read_text(encoding="utf-8").splitlines():
+        ex = json.loads(line)
+        assert unknown_words(ex["target"], ex["source"]) == [], ex["target"]

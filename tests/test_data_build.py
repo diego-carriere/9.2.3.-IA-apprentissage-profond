@@ -48,8 +48,9 @@ def test_rewrite_batch_repairs_and_reasks_missing(tmp_path):
     assert all(db.is_lipogram(o["target"]) and o["target"] for o in out)
     repair_payload = json.loads(runner.prompts[1].split("\n", 1)[1])
     assert repair_payload == {
-        "2": {"source": "bad: le chat dort.", "ta_version": "Un chat qui dort, je crois.", "mots_fautifs": ["je@18"]},
-        "3": {"source": "skip: le chien dort.", "ta_version": None, "mots_fautifs": []}}
+        "2": {"source": "bad: le chat dort.", "ta_version": "Un chat qui dort, je crois.", "mots_avec_e": ["je@18"],
+              "mots_inexistants": []},
+        "3": {"source": "skip: le chien dort.", "ta_version": None, "mots_avec_e": [], "mots_inexistants": []}}
 
 
 def test_unrepaired_missing_is_rejected(tmp_path):
@@ -58,6 +59,25 @@ def test_unrepaired_missing_is_rejected(tmp_path):
             return {"result": "{}"}
     out = rewrite_batch(Teacher("m", tmp_path, 10, runner=Silent()), ["Le chat dort."], max_repairs=1)
     assert out[0]["target"] == "" and rejection_reason("Le chat dort.", "", 1.0, FILTER) == "missing"
+
+
+def test_invented_words_are_repaired_then_rejected(tmp_path):
+    class Inventor(FakeRunner):
+        def __call__(self, system, prompt, model, effort):
+            self.prompts.append(prompt)
+            keys = json.loads(prompt.split("\n", 1)[1] if prompt.startswith("Corrige") else prompt)
+            return {"result": json.dumps({k: "mon chat dort sur un divan flottilly." for k in keys})}
+    runner = Inventor()
+    out = rewrite_batch(Teacher("m", tmp_path, 10, runner=runner), ["Le chat dort sur le canapé."], max_repairs=1)
+    assert out[0]["repairs"] == 1 and out[0]["target"].startswith("Mon")  # capital restored
+    assert json.loads(runner.prompts[1].split("\n", 1)[1])["1"]["mots_inexistants"] == ["flottilly"]
+    assert rejection_reason("Le chat dort sur le canapé.", out[0]["target"], 0.9, FILTER) == "unknown_words"
+
+
+def test_capitalize_like():
+    assert db.capitalize_like("Le chat.", "un chat.") == "Un chat."
+    assert db.capitalize_like("« Oui ! »", "« oui ! »") == "« Oui ! »"
+    assert db.capitalize_like("le chat.", "un chat.") == "un chat."
 
 
 def test_offending_words():

@@ -29,3 +29,4 @@ filter:
   min_sem_sim: 0.85          # raw e5 cosine; to calibrate on the first hand-reviewed batch
   len_ratio_min: 0.7
   len_ratio_max: 1.3
+  max_unknown_words: 0       # words missing from the French lexicon (pyspellchecker); invented words are repaired first

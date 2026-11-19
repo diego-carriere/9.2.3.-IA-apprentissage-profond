@@ -14,6 +14,7 @@ EMBEDDER = "intfloat/multilingual-e5-small"
 # meta-text = a preamble about the answer itself (« Voici : … », « Ma proposition : … »), not « Voici nos gamins »
 META = re.compile(r"^\s*(voici|voilà|ma proposition|proposition|version|traduction|lipogramm\w*)\s*:", re.IGNORECASE)
 WORD = re.compile(r"\w+")
+LEX_WORD = re.compile(r"[^\W\d_]+")  # letters only: splits on apostrophes and hyphens (d'un, peut-on)
 
 
 @lru_cache(maxsize=2)
@@ -26,6 +27,26 @@ def sem_sim(sources: list[str], outputs: list[str], embedder) -> list[float]:
     """Cosine similarity source <-> output (e5 expects the 'query: ' prefix for symmetric tasks)."""
     enc = lambda xs: embedder.encode([f"query: {x}" for x in xs], normalize_embeddings=True, convert_to_tensor=True)
     return (enc(sources) * enc(outputs)).sum(-1).tolist()
+
+
+@lru_cache(maxsize=1)
+def _lexicon():
+    from spellchecker import SpellChecker
+    return SpellChecker(language="fr")
+
+
+def unknown_words(text: str, source: str = "") -> list[str]:
+    """Lower-case words absent from a French lexicon (invented words such as « vall », « musicos »).
+    Capitalized words (proper nouns) and words copied from the source are not checked."""
+    src = {w.lower() for w in LEX_WORD.findall(source)}
+    words = [w for w in LEX_WORD.findall(text) if len(w) > 1 and w.islower() and w not in src]
+    unknown = _lexicon().unknown(words)
+    return [w for w in words if w in unknown]
+
+
+def oov_rate(text: str, source: str = "") -> float:
+    words = [w for w in LEX_WORD.findall(text) if len(w) > 1]
+    return len(unknown_words(text, source)) / len(words) if words else float("nan")
 
 
 def len_ratio(source: str, output: str) -> float:
@@ -79,7 +100,8 @@ def score_rows(rows: list[dict]) -> dict:
         "lipogram_rate": statistics.fmean(is_lipogram(r["output"]) for r in rows),
         "degenerate_rate": statistics.fmean(r["degenerate"] is not None for r in rows),
         "len_in_range": statistics.fmean(0.7 <= r["len_ratio"] <= 1.3 for r in rows),
-        **{f"{k}_{s}": v for k in ("sem_sim", "len_ratio", "fluency") for s, v in summary([r[k] for r in rows]).items()},
+        **{f"{k}_{s}": v for k in ("sem_sim", "len_ratio", "fluency", "oov_rate") if k in rows[0]
+           for s, v in summary([r[k] for r in rows]).items()},
     }
 
 

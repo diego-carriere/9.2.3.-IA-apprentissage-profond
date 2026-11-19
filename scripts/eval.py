@@ -18,11 +18,11 @@ import yaml
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from lipogram.generate import generate, load  # noqa: E402
 from lipogram.metrics import (EMBEDDER, degenerate_reason, export_human_csv, fluency, len_ratio,  # noqa: E402
-                              load_embedder, score_rows, sem_sim)
+                              load_embedder, oov_rate, score_rows, sem_sim)
 from lipogram.rerank import DEFAULT_WEIGHTS, best_of_n  # noqa: E402
 
-METRICS = ["lipogram_rate", "sem_sim_mean", "sem_sim_p10", "fluency_mean", "len_ratio_median", "len_in_range",
-           "degenerate_rate"]
+METRICS = ["lipogram_rate", "sem_sim_mean", "sem_sim_p10", "fluency_mean", "oov_rate_mean", "len_ratio_median",
+           "len_in_range", "degenerate_rate"]
 
 
 def candidate_rows(item, cands, model, tok, embedder):
@@ -31,6 +31,7 @@ def candidate_rows(item, cands, model, tok, embedder):
     flus = fluency(outs, model, tok)
     return [{"id": item["id"], "kind": item.get("kind", ""), "source": item["text"], "output": c["text"],
              "sem_sim": s, "fluency": f, "len_ratio": len_ratio(item["text"], c["text"]),
+             "oov_rate": oov_rate(c["text"], item["text"]),
              "degenerate": degenerate_reason(item["text"], c["text"], c["truncated"])}
             for c, s, f in zip(cands, sims, flus)]
 
