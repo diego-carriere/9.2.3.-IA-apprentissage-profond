@@ -19,7 +19,8 @@ corpus:
 
 teacher:
   model: sonnet              # Claude Code CLI on the claude.ai subscription login, never an API key
-  batch_size: 20             # sources per call: spares the subscription quota
+  effort: low                # thinking stays on (adaptive); low ≈ medium quality, slightly cheaper
+  batch_size: 10             # 20 caused dropped items and ~6.5 min calls
   max_calls: 30              # hard cap of NEW calls per run (cached answers are free)
   max_repairs: 2
   cache_dir: data/cache/teacher

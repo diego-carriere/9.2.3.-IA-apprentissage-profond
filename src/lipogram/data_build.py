@@ -130,10 +130,10 @@ class TeacherError(Exception):
     pass
 
 
-def claude_cli(system: str, prompt: str, model: str, timeout: int = 600) -> dict:
+def claude_cli(system: str, prompt: str, model: str, effort: str = "low", timeout: int = 900) -> dict:
     """One headless Claude Code call on the subscription login (API-key env stripped, no settings/tools/MCP)."""
     env = {k: v for k, v in os.environ.items() if k not in API_ENV_VARS}
-    cmd = ["claude", "-p", "--output-format", "json", "--model", model, "--system-prompt", system,
+    cmd = ["claude", "-p", "--output-format", "json", "--model", model, "--effort", effort, "--system-prompt", system,
            "--tools", "", "--no-session-persistence", "--strict-mcp-config", "--setting-sources", ""]
     with tempfile.TemporaryDirectory() as cwd:  # outside the repo: no CLAUDE.md picked up
         r = subprocess.run(cmd, input=prompt, capture_output=True, text=True, env=env, cwd=cwd, timeout=timeout)
@@ -147,23 +147,23 @@ def claude_cli(system: str, prompt: str, model: str, timeout: int = 600) -> dict
 
 
 class Teacher:
-    """Cached, budgeted teacher. `runner(system, prompt, model) -> {"result": str, ...}` is injectable for tests."""
+    """Cached, budgeted teacher. `runner(system, prompt, model, effort) -> {"result": str, ...}` is injectable."""
 
-    def __init__(self, model: str, cache_dir: Path, max_calls: int, runner=claude_cli):
-        self.model, self.cache_dir, self.max_calls, self.runner = model, Path(cache_dir), max_calls, runner
+    def __init__(self, model: str, cache_dir: Path, max_calls: int, effort: str = "low", runner=claude_cli):
+        self.model, self.effort, self.cache_dir, self.max_calls, self.runner = model, effort, Path(cache_dir), max_calls, runner
         self.calls = 0
         self.indicative_cost = 0.0
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
     def ask(self, system: str, prompt: str) -> str:
-        key = hashlib.sha256(f"{self.model}\0{system}\0{prompt}".encode()).hexdigest()
+        key = hashlib.sha256(f"{self.model}\0{self.effort}\0{system}\0{prompt}".encode()).hexdigest()
         path = self.cache_dir / f"{key}.json"
         if path.exists():
             return json.loads(path.read_text(encoding="utf-8"))["result"]
         if self.calls >= self.max_calls:
             raise BudgetExceeded(f"max_calls={self.max_calls} reached")
         self.calls += 1
-        out = self.runner(system, prompt, self.model)
+        out = self.runner(system, prompt, self.model, self.effort)
         self.indicative_cost += out.get("total_cost_usd") or 0.0
         path.write_text(json.dumps(out, ensure_ascii=False), encoding="utf-8")  # written only on success
         return out["result"]
@@ -174,20 +174,21 @@ def teacher_system() -> str:
     shots = [json.loads(line) for line in (PROMPTS_DIR / "fewshot.jsonl").read_text(encoding="utf-8").splitlines()]
     examples = "\n".join(f"- {s['source']}\n  → {s['target']}" for s in shots)
     return (f"{rules}\n\nExemples :\n{examples}\n\n"
-            "Tu reçois un tableau JSON de textes. Réponds UNIQUEMENT par un tableau JSON de chaînes, de même longueur "
-            "et dans le même ordre, chaque chaîne étant la réécriture du texte correspondant. Aucun autre texte. "
+            'Tu reçois un objet JSON {"1": texte, "2": texte, ...}. Réponds UNIQUEMENT par un objet JSON avec les mêmes '
+            "clés, chaque valeur étant la réécriture du texte correspondant. Aucun autre texte. "
             "Vérifie chaque mot lettre par lettre : un seul « e » rend la réécriture inutilisable.")
 
 
-def parse_json_list(text: str, n: int) -> list[str]:
-    m = re.search(r"\[.*\]", text, re.DOTALL)
+def parse_json_object(text: str, keys: list[str]) -> dict[str, str]:
+    """Answers for the expected keys; missing or malformed entries are simply absent (re-asked later)."""
+    m = re.search(r"\{.*\}", text, re.DOTALL)
     try:
-        items = json.loads(m.group(0)) if m else None
+        obj = json.loads(m.group(0)) if m else None
     except json.JSONDecodeError:
-        items = None
-    if not isinstance(items, list) or len(items) != n or not all(isinstance(x, str) for x in items):
-        raise TeacherError(f"bad teacher answer (expected {n} strings): {text[:200]!r}")
-    return [x.strip() for x in items]
+        obj = None
+    if not isinstance(obj, dict):
+        raise TeacherError(f"teacher answer is not a JSON object: {text[:200]!r}")
+    return {k: obj[k].strip() for k in keys if isinstance(obj.get(k), str) and obj[k].strip()}
 
 
 def offending_words(text: str) -> list[str]:
@@ -196,32 +197,38 @@ def offending_words(text: str) -> list[str]:
     return [f"{m.group(0)}@{m.start()}" for m in WORD.finditer(text) if bad & set(range(m.start(), m.end()))]
 
 
-def repair_prompt(items: list[tuple[str, str]]) -> str:
-    payload = [{"source": s, "ta_version": t, "mots_fautifs": offending_words(t)} for s, t in items]
-    return ("Ces réécritures contiennent encore des « e » dans les mots listés (mot@position). Remplace ces mots "
-            "(et seulement ce qui est nécessaire) pour obtenir un texte sans aucun « e », fidèle à la source. "
-            "Réponds par un tableau JSON des versions corrigées, même ordre.\n"
+def repair_prompt(items: dict[str, tuple[str, str | None]]) -> str:
+    payload = {k: {"source": s, "ta_version": t, "mots_fautifs": offending_words(t) if t else []}
+               for k, (s, t) in items.items()}
+    return ("Corrige ces réécritures. Si ta_version contient encore des « e », remplace les mots listés (mot@position) "
+            "et seulement ce qui est nécessaire ; si ta_version est null, réécris la source. Le résultat doit être "
+            "sans aucun « e » et fidèle à la source. Réponds par un objet JSON avec les mêmes clés.\n"
             + json.dumps(payload, ensure_ascii=False))
 
 
 def rewrite_batch(teacher: Teacher, sources: list[str], max_repairs: int = 2) -> list[dict]:
-    """Teacher rewrites + up to max_repairs repair rounds for outputs that still contain an « e »."""
+    """Teacher rewrites + up to max_repairs repair rounds for outputs that are missing or still contain an « e »."""
     system = teacher_system()
-    targets = parse_json_list(teacher.ask(system, json.dumps(sources, ensure_ascii=False)), len(sources))
+    keys = [str(i + 1) for i in range(len(sources))]
+    got = parse_json_object(teacher.ask(system, json.dumps(dict(zip(keys, sources)), ensure_ascii=False)), keys)
+    targets = [got.get(k) for k in keys]
     repairs = [0] * len(sources)
     for _ in range(max_repairs):
-        todo = [i for i, t in enumerate(targets) if not is_lipogram(t)]
+        todo = {k: (sources[i], targets[i]) for i, k in enumerate(keys) if targets[i] is None or not is_lipogram(targets[i])}
         if not todo:
             break
-        fixed = parse_json_list(teacher.ask(system, repair_prompt([(sources[i], targets[i]) for i in todo])), len(todo))
-        for i, t in zip(todo, fixed):
+        fixed = parse_json_object(teacher.ask(system, repair_prompt(todo)), list(todo))
+        for k, t in fixed.items():
+            i = int(k) - 1
             targets[i], repairs[i] = t, repairs[i] + 1
-    return [{"source": s, "target": t, "repairs": r} for s, t, r in zip(sources, targets, repairs)]
+    return [{"source": s, "target": t or "", "repairs": r} for s, t, r in zip(sources, targets, repairs)]
 
 
 # ---------------------------------------------------------------- filtering
 
 def rejection_reason(source: str, target: str, sim: float, cfg: dict) -> str | None:
+    if not target:
+        return "missing"
     if not is_lipogram(target):
         return "has_e"
     if sim < cfg["min_sem_sim"]:

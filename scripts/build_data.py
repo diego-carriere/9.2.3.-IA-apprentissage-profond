@@ -49,7 +49,7 @@ def build_corpus(cfg: dict) -> None:
 def build_pairs(cfg: dict, limit: int | None) -> None:
     t, f = cfg["teacher"], cfg["filter"]
     sources = [json.loads(line) for line in SOURCES.open(encoding="utf-8")][:limit]
-    teacher = Teacher(t["model"], Path(t["cache_dir"]), t["max_calls"])
+    teacher = Teacher(t["model"], Path(t["cache_dir"]), t["max_calls"], t.get("effort", "low"))
     done, stop_reason = [], None
     for i in range(0, len(sources), t["batch_size"]):
         batch = sources[i:i + t["batch_size"]]

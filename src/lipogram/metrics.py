@@ -11,7 +11,8 @@ import torch
 from lipogram.rules import is_lipogram
 
 EMBEDDER = "intfloat/multilingual-e5-small"
-META = re.compile(r"^\s*(voici|voilà|version|traduction|texte|lipogramm?)\b", re.IGNORECASE)
+# meta-text = a preamble about the answer itself (« Voici : … », « Ma proposition : … »), not « Voici nos gamins »
+META = re.compile(r"^\s*(voici|voilà|ma proposition|proposition|version|traduction|lipogramm\w*)\s*:", re.IGNORECASE)
 WORD = re.compile(r"\w+")
 
 
