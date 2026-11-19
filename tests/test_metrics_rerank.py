@@ -98,3 +98,9 @@ def test_fewshot_targets_pass_lexicon():
     for line in (PROMPTS_DIR / "fewshot.jsonl").read_text(encoding="utf-8").splitlines():
         ex = json.loads(line)
         assert unknown_words(ex["target"], ex["source"]) == [], ex["target"]
+
+
+def test_unknown_words_apostrophes_hyphens_and_extra_list():
+    assert unknown_words("Aujourd'hui, quelqu'un a pris un sous-sol, dit-on ; va-t-il partir ?") == []
+    assert unknown_words("Mon frangin, un toubib, a vu un taupin.") == []  # configs/lexicon_extra.txt
+    assert unknown_words("il fut un bon musicos aujourd'hui") == ["musicos"]

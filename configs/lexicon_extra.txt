@@ -1,0 +1,3 @@
+# Real French words missing from the pyspellchecker FR list, found while reviewing teacher rejects.
+# One word per line; extend only after checking the word in a dictionary (never to let an invented word through).
+frangin frangine toubib taupin canasson argousin argousins hanap hanaps knout nonnain nonnains aquilon assignat assignats

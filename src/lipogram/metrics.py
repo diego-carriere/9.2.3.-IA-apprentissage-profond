@@ -5,6 +5,7 @@ import random
 import re
 import statistics
 from functools import lru_cache
+from pathlib import Path
 
 import torch
 
@@ -14,7 +15,8 @@ EMBEDDER = "intfloat/multilingual-e5-small"
 # meta-text = a preamble about the answer itself (« Voici : … », « Ma proposition : … »), not « Voici nos gamins »
 META = re.compile(r"^\s*(voici|voilà|ma proposition|proposition|version|traduction|lipogramm\w*)\s*:", re.IGNORECASE)
 WORD = re.compile(r"\w+")
-LEX_WORD = re.compile(r"[^\W\d_]+")  # letters only: splits on apostrophes and hyphens (d'un, peut-on)
+LEX_TOKEN = re.compile(r"[^\W\d_]+(?:['-][^\W\d_]+)*")  # keeps aujourd'hui, sous-sol, dit-on together
+LEX_PART = re.compile(r"[^\W\d_]+")
 
 
 @lru_cache(maxsize=2)
@@ -29,23 +31,39 @@ def sem_sim(sources: list[str], outputs: list[str], embedder) -> list[float]:
     return (enc(sources) * enc(outputs)).sum(-1).tolist()
 
 
+LEX_EXTRA = Path(__file__).resolve().parents[2] / "configs" / "lexicon_extra.txt"
+# elisions and inverted-subject clitics: « qu'il », « dit-on », « va-t-il »
+CLITICS = set("l d j m n s t c qu jusqu lorsqu puisqu quoiqu il ils elle elles on je tu nous vous moi toi lui leur "
+              "y en ce le la les".split())
+
+
 @lru_cache(maxsize=1)
 def _lexicon():
     from spellchecker import SpellChecker
-    return SpellChecker(language="fr")
+    sp = SpellChecker(language="fr")
+    if LEX_EXTRA.exists():  # real words missing from the pyspellchecker list (frangin, toubib...)
+        sp.word_frequency.load_words(w for w in LEX_EXTRA.read_text(encoding="utf-8").split() if not w.startswith("#"))
+    return sp
 
 
 def unknown_words(text: str, source: str = "") -> list[str]:
-    """Lower-case words absent from a French lexicon (invented words such as « vall », « musicos »).
-    Capitalized words (proper nouns) and words copied from the source are not checked."""
-    src = {w.lower() for w in LEX_WORD.findall(source)}
-    words = [w for w in LEX_WORD.findall(text) if len(w) > 1 and w.islower() and w not in src]
-    unknown = _lexicon().unknown(words)
-    return [w for w in words if w in unknown]
+    """Words absent from a French lexicon (invented words such as « vall », « musicos »).
+    A word with apostrophes/hyphens is known if the whole form is, or every part is known or a clitic.
+    Capitalized parts (proper nouns) and words copied from the source are not checked."""
+    lex = _lexicon()
+    src = {w.lower() for w in LEX_PART.findall(source)}
+    unknown = []
+    for token in LEX_TOKEN.findall(text.replace("’", "'")):
+        if token.lower() in lex:
+            continue
+        parts = [w for w in LEX_PART.findall(token)
+                 if len(w) > 1 and w.islower() and w not in CLITICS and w not in src]
+        unknown += [w for w in parts if w not in lex]
+    return unknown
 
 
 def oov_rate(text: str, source: str = "") -> float:
-    words = [w for w in LEX_WORD.findall(text) if len(w) > 1]
+    words = [w for w in LEX_PART.findall(text) if len(w) > 1]
     return len(unknown_words(text, source)) / len(words) if words else float("nan")
 
 
