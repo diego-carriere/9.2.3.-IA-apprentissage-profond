@@ -34,7 +34,15 @@ Chaque entrée : décision, raison, date. Les plus récentes en bas.
 
 13. **Approximation de la fréquence des tokens dans le rapport du masque : ordre des fusions BPE.** Elle est biaisée vers l'anglais. Elle sera remplacée par des fréquences sur le corpus français une fois celui-ci construit.
 
-## En attente
+14. **Jeu d'évaluation figé : extrait de 19 livres français du domaine public (Project Gutenberg)** via `scripts/build_eval.py` (graine fixe). Le site principal de Gutenberg était en maintenance ; on passe par le miroir `mirrors.xmission.com`. Wikisource renvoyait des extraits vides à cause de la transclusion.
+    - 200 phrases (40 par genre : narratif, descriptif, dialogue, argumentatif, technique), 50 paragraphes (10 par genre) et 30 pièges.
+    - Tous les auteurs sont morts avant 1915. L'en-tête et la licence Gutenberg sont retirés ; seul le texte du domaine public est conservé.
+    - Dialogue : Gutenberg note le tiret `--`, normalisé en `—`. Un paragraphe de dialogue = une suite d'au moins 2 répliques consécutives.
+    - Pièges : score automatique (noms propres contenant « e », nombres en lettres, verbes en -ent, guillemets), au moins 2 critères, 3 par livre au maximum.
+    - **Limite** : registre exclusivement XIXe siècle ou plus ancien (Descartes, Voltaire). Un jeu moderne complémentaire serait utile pour mesurer la généralisation.
+    - **Hash** : `f45b381a316d8715` (sha256 de `data/eval/MANIFEST.sha256`, tronqué), vérifié par `tests/test_eval_set.py`.
+    - Ces 19 livres (identifiants Gutenberg dans les champs `source.gutenberg_id`) sont **exclus du corpus d'entraînement**.
 
-- **Enseignant du mode A** : backend `claude -p` (abonnement Claude Code, pas de clé API). Avant toute génération, il faut vérifier que les conditions d'utilisation autorisent l'usage des sorties pour entraîner un modèle. Plan B : un enseignant open-weight via OpenRouter, ou le mode B sur GPU.
-- **Hash du jeu d'évaluation** : à consigner une fois `data/eval/` figé.
+15. **Mode A autorisé** (confirmé par l'utilisateur le 2026-11-19) : l'enseignant `claude -p` (abonnement Claude Code) peut générer des données pour entraîner ce petit modèle de cours.
+
+16. **`sem_sim` (e5) mal calibrée** : sur le smoke test, elle vaut environ 0,91 pour des sorties à peine intelligibles (les cosinus d'e5 sont tassés dans [0,7 ; 1]). À faire avant l'étape 1 : la recentrer par rapport à une référence de paires non liées (`(sim − sim_aléatoire) / (1 − sim_aléatoire)`), et ajouter un taux de mots hors lexique pour attraper les mots tronqués (« vall », « lumi »), invisibles pour `degenerate_rate`.
