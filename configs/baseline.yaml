@@ -1,0 +1,13 @@
+# Step 1 baseline (GPU, 8 GB): base model + mask + best-of-n, no fine-tuning.
+model: Qwen/Qwen3-4B-Instruct-2507
+dtype: bfloat16
+load_in_4bit: true                # 4B in bf16 is ~8 GB: does not fit next to activations
+use_mask: true
+eval_files: [data/eval/phrases.jsonl, data/eval/paragraphes.jsonl, data/eval/pieges.jsonl]
+limit: null
+n_values: [1, 4, 8, 16]
+human_n: 8
+seed: 0
+generation: {temperature: 0.7, top_p: 0.9, max_new_tokens: 384, repetition_penalty: 1.0, no_repeat_ngram_size: 0}
+rerank_weights: {sem_sim: 0.5, fluency: 0.3, length: 0.2}
+out_dir: outputs/baseline

@@ -1,0 +1,13 @@
+# CPU smoke test: whole pipeline on 5 hand-written texts (not the eval set).
+model: Qwen/Qwen3-0.6B            # same tokenizer/mask as Qwen3-4B-Instruct-2507
+dtype: bfloat16
+load_in_4bit: false
+use_mask: true
+eval_files: [tests/fixtures/smoke.jsonl]
+limit: null
+n_values: [1, 2]
+human_n: 2
+seed: 0
+generation: {temperature: 0.7, top_p: 0.9, max_new_tokens: 96}
+rerank_weights: {sem_sim: 0.5, fluency: 0.3, length: 0.2}
+out_dir: outputs/smoke_cpu
